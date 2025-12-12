@@ -28,6 +28,8 @@ public class PlayerMovement : MonoBehaviour
     public LayerMask grindLayer;
     [Tooltip("Distance du Raycast pour le sol.")]
     public float groundCheckDistance = 0.2f;
+    [Tooltip("Angle maximum de la pente pour l'alignement (en degrés).")]
+    public float maxSlopeAngle = 50f;
 
     // --- Variables Internes ---
     private CharacterController _controller;
@@ -38,6 +40,7 @@ public class PlayerMovement : MonoBehaviour
     private bool _isWindPlaying = false; // Check if wind audio is active
     private bool _isGrinding = false; // Grind state
     private float _grindStartTime = 0f; // Track grind duration
+    private Vector3 _groundNormal = Vector3.up; // Stores the current ground normal
 
     private bool wasJumping = false;
 
@@ -50,6 +53,8 @@ public class PlayerMovement : MonoBehaviour
     private PlayerScore playerScore;
     private TricksManager tricksManager;
     private AudioManager audioManager;
+
+    public GameObject GrindingEffect;
 
     void Start()
     {
@@ -70,6 +75,10 @@ public class PlayerMovement : MonoBehaviour
         bool isGrounded = CheckGrounded();
         float inputHorizontal = Input.GetAxis("Horizontal");
 
+        if (!_isGrinding)
+        {
+            GrindingEffect.SetActive(false);
+        }
         if (_isGrinding)
         {
             if (CheckGrind(out Vector3 grindPoint, out Vector3 grindDir))
@@ -93,6 +102,12 @@ public class PlayerMovement : MonoBehaviour
                 
                 _deplacementDirection = moveDir * _vitesseActuelle;
 
+                if (GrindingEffect != null && _deplacementDirection.sqrMagnitude > 0.1f)
+                {
+                    GrindingEffect.SetActive(true);
+                    GrindingEffect.transform.rotation = Quaternion.LookRotation(-_deplacementDirection);
+                }
+
                 // Jump Exit
                 if (Input.GetButtonDown("Jump"))
                 {
@@ -112,6 +127,7 @@ public class PlayerMovement : MonoBehaviour
             }
             else
             {
+                GrindingEffect.SetActive(false);
                 // Rail ended
                 _isGrinding = false;
                 
@@ -161,6 +177,17 @@ public class PlayerMovement : MonoBehaviour
             }
 
             _deplacementDirection = transform.forward * _vitesseActuelle;
+
+            // --- Alignement au sol (Rampes) ---
+            // On projette le vecteur forward sur le plan défini par la normale du sol
+            Vector3 targetForward = Vector3.ProjectOnPlane(transform.forward, _groundNormal).normalized;
+            // On calcule la rotation cible : on veut que 'up' soit la normale du sol, et 'forward' soit notre direction projetée
+            if (targetForward != Vector3.zero)
+            {
+                Quaternion targetRotation = Quaternion.LookRotation(targetForward, _groundNormal);
+                // Interpolation douce pour éviter les sauts brusques
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * 10f);
+            }
 
             if (Input.GetButtonDown("Jump"))
             {
@@ -229,7 +256,7 @@ public class PlayerMovement : MonoBehaviour
             }
 
             wasJumping = false;
-            _accumulatedRotation = 0f; // Reset after landing
+            _accumulatedRotation = 0f;
             cameraShakeController.ShakeCameraLanding(1f, 0.2f);
         }
     }
@@ -240,7 +267,22 @@ public class PlayerMovement : MonoBehaviour
 
         Vector3 origin = transform.position + Vector3.up * 0.1f; 
         Debug.DrawRay(origin, Vector3.down * groundCheckDistance, Color.red);
-        return Physics.Raycast(origin, Vector3.down, groundCheckDistance, groundLayer);
+        
+        if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, groundCheckDistance, groundLayer))
+        {
+            if (Vector3.Angle(hit.normal, Vector3.up) <= maxSlopeAngle)
+            {
+                _groundNormal = hit.normal;
+            }
+            else
+            {
+                 _groundNormal = Vector3.up;
+            }
+            return true;
+        }
+        
+        _groundNormal = Vector3.up; // Reset normal if in air
+        return false;
     }
 
     private void OnControllerColliderHit(ControllerColliderHit hit)
@@ -255,6 +297,14 @@ public class PlayerMovement : MonoBehaviour
                  audioManager.PlayAudio("Grind");
                  wasJumping = false; 
                  cameraShakeController.ShakeCameraLanding(0.5f, 0.1f);
+                 audioManager.PlayAudio("Landing");
+                if (tricksManager != null)
+                {
+                    tricksManager.RegisterLanding(_accumulatedRotation);
+                }
+                wasJumping = false;
+                _accumulatedRotation = 0f;
+                cameraShakeController.ShakeCameraLanding(1f, 0.2f);
              }
         }
     }
