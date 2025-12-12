@@ -4,8 +4,8 @@ using UnityEngine.UI;
 public class TricksManager : MonoBehaviour
 {
     [Header("Rotation Scores")]
-    public int score360 = 500;
-    public int score270 = 250;
+    public int score360 = 50;
+    public int score270 = 25;
     
     [Header("Combo Settings")]
     public float comboWindow = 3.0f; // Time to perform next trick
@@ -20,6 +20,12 @@ public class TricksManager : MonoBehaviour
     private float _comboTimer = 0f;
     private int _currentCombo = 1;
 
+    
+    [Header("Grind Score")]
+    public int pointsPerSecond = 100;
+
+    private AudioManager audioManager;
+
     void Start()
     {
         if (playerScore == null)
@@ -31,6 +37,8 @@ public class TricksManager : MonoBehaviour
         {
             comboBarImage.fillAmount = 0f;
         }
+
+        audioManager = FindObjectOfType<AudioManager>();
     }
 
     void Update()
@@ -126,6 +134,7 @@ public class TricksManager : MonoBehaviour
                 ComboTextEffect.gameObject.SetActive(true);
                 ComboTextEffect.UpdateText($"x{multiplier:F1}", false);
             }
+            audioManager.PlayAudio("Points");
         }
     }
 
@@ -136,5 +145,45 @@ public class TricksManager : MonoBehaviour
         if (comboBarImage != null) comboBarImage.fillAmount = 0f;
         float multiplier = 1f + (_currentCombo - 1) * comboMultiplierStep;
         ComboTextEffect.UpdateText($"x{multiplier:F1}", false);
+    }
+
+    public void RegisterGrind(float duration)
+    {
+         if (playerScore == null) return;
+         if (duration < 0.1f) return;
+
+         int grindScore = Mathf.FloorToInt(duration * pointsPerSecond);
+         string trickName = $"GRIND ({duration:F1}s)";
+
+         // Apply Combo Logic (reuse logic if possible, or duplicate for now)
+         if (grindScore > 0)
+         {
+            if (_comboTimer > 0)
+            {
+                _currentCombo++;
+            }
+            else
+            {
+                _currentCombo = 1;
+            }
+            _comboTimer = comboWindow;
+            
+            float multiplier = 1f + (_currentCombo - 1) * comboMultiplierStep;
+            int finalScore = Mathf.RoundToInt(grindScore * multiplier);
+            
+            playerScore.AddScore(finalScore);
+            
+            if (TrickTextEffect != null)
+            {
+                TrickTextEffect.gameObject.SetActive(true);
+                TrickTextEffect.UpdateText(trickName, true);
+            }
+            if (ComboTextEffect != null && _currentCombo > 1)
+            {
+            ComboTextEffect.gameObject.SetActive(true);
+            ComboTextEffect.UpdateText($"x{multiplier:F1}", false);
+            }
+            audioManager.PlayAudio("Points");
+         }
     }
 }

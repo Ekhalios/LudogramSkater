@@ -129,7 +129,7 @@ Material:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _Glow: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
-    - _GlowColor: {r: 1.9940827, g: 1.9940827, b: 1.9940827, a: 1.9940827}
+    - _GlowColor: {r: 1.0483652, g: 1.0483652, b: 1.0483652, a: 1.0483652}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

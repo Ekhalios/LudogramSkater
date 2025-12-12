@@ -24,6 +24,8 @@ public class PlayerMovement : MonoBehaviour
     public float gravite = 20.0f;
     [Tooltip("Layer pour la détection du sol.")]
     public LayerMask groundLayer;
+    [Tooltip("Layer pour la détection des rails de grind.")]
+    public LayerMask grindLayer;
     [Tooltip("Distance du Raycast pour le sol.")]
     public float groundCheckDistance = 0.2f;
 
@@ -33,6 +35,9 @@ public class PlayerMovement : MonoBehaviour
     private float _vitesseActuelle = 0.0f;
     private float _accumulatedRotation = 0f; // Track total rotation in air
     private float _jumpCooldownTimer = 0f; // Prevent ground check immediately after jump
+    private bool _isWindPlaying = false; // Check if wind audio is active
+    private bool _isGrinding = false; // Grind state
+    private float _grindStartTime = 0f; // Track grind duration
 
     private bool wasJumping = false;
 
@@ -44,6 +49,7 @@ public class PlayerMovement : MonoBehaviour
 
     private PlayerScore playerScore;
     private TricksManager tricksManager;
+    private AudioManager audioManager;
 
     void Start()
     {
@@ -56,6 +62,7 @@ public class PlayerMovement : MonoBehaviour
             enabled = false; 
         }
         playerScore = GetComponent<PlayerScore>();
+        audioManager = FindFirstObjectByType<AudioManager>();
     }
 
     void Update()
@@ -63,7 +70,59 @@ public class PlayerMovement : MonoBehaviour
         bool isGrounded = CheckGrounded();
         float inputHorizontal = Input.GetAxis("Horizontal");
 
-        if (isGrounded)
+        if (_isGrinding)
+        {
+            if (CheckGrind(out Vector3 grindPoint, out Vector3 grindDir))
+            {
+                _deplacementDirection.y = 0f;
+                // Snap Y
+                Vector3 targetPos = transform.position;
+                targetPos.y = grindPoint.y + 0.15f; 
+                transform.position = Vector3.Lerp(transform.position, targetPos, Time.deltaTime * 20f);
+
+                // Axis Movement
+                float dot = Vector3.Dot(transform.forward, grindDir);
+                Vector3 moveDir = (dot > 0) ? grindDir : -grindDir;
+                
+                // Speed Input
+                float inputVertical = Input.GetAxis("Vertical");
+                if (inputVertical > 0.1f)
+                {
+                        _vitesseActuelle = Mathf.Min(_vitesseActuelle + inputVertical * Time.deltaTime * acceleration, vitesseAvance);
+                }
+                
+                _deplacementDirection = moveDir * _vitesseActuelle;
+
+                // Jump Exit
+                if (Input.GetButtonDown("Jump"))
+                {
+                    _isGrinding = false;
+                    
+                    // Register Grind Trick
+                    float duration = Time.time - _grindStartTime;
+                    if (tricksManager != null) tricksManager.RegisterGrind(duration);
+
+                    _deplacementDirection.y = forceSaut;
+                    wasJumping = true;
+                    _accumulatedRotation = 0f;
+                    _jumpCooldownTimer = 0.2f;
+                    audioManager.StopAudio("Grind");
+                    audioManager.PlayAudio("Jump");
+                }
+            }
+            else
+            {
+                // Rail ended
+                _isGrinding = false;
+                
+                // Register Grind Trick
+                float duration = Time.time - _grindStartTime;
+                if (tricksManager != null) tricksManager.RegisterGrind(duration);
+
+                audioManager.StopAudio("Grind");
+            }
+        }
+        else if (isGrounded)
         {
             CheckLanding(isGrounded);
             _deplacementDirection.y = 0f; 
@@ -82,17 +141,30 @@ public class PlayerMovement : MonoBehaviour
             {
                 speedEffect.SetActive(true);
                 cameraShakeController.ShakeCameraSpeed(0.5f);
+                
+                if (!_isWindPlaying)
+                {
+                    audioManager.PlayAudio("Wind");
+                    _isWindPlaying = true;
+                }
             }
             else
             {
-                speedEffect.SetActive(false);
+                speedEffect.SetActive(false);   
                 cameraShakeController.StopShakeCameraSpeed();
+                
+                if (_isWindPlaying)
+                {
+                    audioManager.StopAudio("Wind", true, 0.5f); // Fade out over 0.5s
+                    _isWindPlaying = false;
+                }
             }
 
             _deplacementDirection = transform.forward * _vitesseActuelle;
 
             if (Input.GetButtonDown("Jump"))
             {
+                audioManager.PlayAudio("Jump");
                 _deplacementDirection.y = forceSaut;
                 wasJumping = true;
                 _accumulatedRotation = 0f; // Reset rotation tracking
@@ -136,6 +208,7 @@ public class PlayerMovement : MonoBehaviour
     {
         if (isGrounded && wasJumping)
         {
+            audioManager.PlayAudio("Landing");
             // --- Integration Tricks Manager (Rotation Based) ---
             if (tricksManager != null)
             {
@@ -160,12 +233,44 @@ public class PlayerMovement : MonoBehaviour
             cameraShakeController.ShakeCameraLanding(1f, 0.2f);
         }
     }
+
     private bool CheckGrounded()
     {        
         if (_jumpCooldownTimer > 0) return false;
 
-        Vector3 origin = transform.position + Vector3.up * 0.15f; 
+        Vector3 origin = transform.position + Vector3.up * 0.1f; 
         Debug.DrawRay(origin, Vector3.down * groundCheckDistance, Color.red);
         return Physics.Raycast(origin, Vector3.down, groundCheckDistance, groundLayer);
+    }
+
+    private void OnControllerColliderHit(ControllerColliderHit hit)
+    {
+        // Check for Grind Entry via Collision
+        if (!_isGrinding && _deplacementDirection.y < 0) // Falling onto it (removed invalid _isGrounded check)
+        {
+             if (((1 << hit.gameObject.layer) & grindLayer) != 0)
+             {
+                 _isGrinding = true;
+                 _grindStartTime = Time.time; // Start Timer
+                 audioManager.PlayAudio("Grind");
+                 wasJumping = false; 
+                 cameraShakeController.ShakeCameraLanding(0.5f, 0.1f);
+             }
+        }
+    }
+
+    private bool CheckGrind(out Vector3 hitPoint, out Vector3 hitDirection)
+    {
+        hitPoint = Vector3.zero;
+        hitDirection = Vector3.forward;
+
+        // Use SphereCast for wider detection (more forgiving) instead of a single Raycast
+        if (Physics.SphereCast(transform.position + Vector3.up * 0.5f, 0.3f, Vector3.down, out RaycastHit hit, 1.0f, grindLayer))
+        {
+            hitPoint = hit.point;
+            hitDirection = hit.transform.forward;
+            return true;
+        }
+        return false;
     }
 }
