@@ -134,5 +134,7 @@ public class TricksManager : MonoBehaviour
         _currentCombo = 1;
         _comboTimer = 0f;
         if (comboBarImage != null) comboBarImage.fillAmount = 0f;
+        float multiplier = 1f + (_currentCombo - 1) * comboMultiplierStep;
+        ComboTextEffect.UpdateText($"x{multiplier:F1}", false);
     }
 }
