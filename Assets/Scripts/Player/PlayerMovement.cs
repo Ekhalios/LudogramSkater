@@ -140,7 +140,7 @@ public class PlayerMovement : MonoBehaviour
             if (_vitesseActuelle >= activationEffectSpeed)
             {
                 speedEffect.SetActive(true);
-                cameraShakeController.ShakeCameraSpeed(0.5f);
+                cameraShakeController.ShakeCameraSpeed(0.25f);
                 
                 if (!_isWindPlaying)
                 {
